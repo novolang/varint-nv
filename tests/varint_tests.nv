@@ -47,8 +47,11 @@ fn test_the_32_bit_ends() [io]
 fn test_the_64_bit_ends() [io]
     // 2^63 - 1 folds to 2^64 - 2 and -2^63 to 2^64 - 1, so both take
     // all ten bytes and differ only in the first.
-    let top = bits.shr(0 - 1, 1)
-    let bottom = bits.shl(1, 63)
+    // The all-ones pattern is named because `>>>` binds LOOSER than
+    // `-`, so `0 - 1 >>> 1` is right and reads wrong.
+    let all_ones = 0 - 1
+    let top = all_ones >>> 1
+    let bottom = 1 << 63
     test.assert_eq(bytes.to_hex(varint.encode(top)), "feffffffffffffffff01")
     test.assert_eq(bytes.to_hex(varint.encode(bottom)), "ffffffffffffffffff01")
 
@@ -58,7 +61,7 @@ fn test_the_two_widths_agree_wherever_both_are_defined() [io]
     // bytes: the fold is the same renumbering, and the byte loop is the
     // same loop.
     for shift in 0 .. 31
-        let n = bits.shl(1, shift)
+        let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(bytes.to_hex(varint.encode32(n)), bytes.to_hex(varint.encode(n)))
         test.assert_eq(bytes.to_hex(varint.encode32(0 - n)), bytes.to_hex(varint.encode(0 - n)))
@@ -75,7 +78,7 @@ fn round_trip32(n: Int) -> Int
 @test
 fn test_round_trip_over_the_powers_of_two_at_64_bits() [io]
     for shift in 0 .. 62
-        let n = bits.shl(1, shift)
+        let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(round_trip(n), n)
         test.assert_eq(round_trip(0 - n), 0 - n)
@@ -83,7 +86,7 @@ fn test_round_trip_over_the_powers_of_two_at_64_bits() [io]
 @test
 fn test_round_trip_over_the_powers_of_two_at_32_bits() [io]
     for shift in 0 .. 31
-        let n = bits.shl(1, shift)
+        let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(round_trip32(n), n)
         test.assert_eq(round_trip32(0 - n), 0 - n)
@@ -93,7 +96,7 @@ fn test_encoded_len_agrees_with_what_encode_writes() [io]
     // A caller sizes a buffer from `encoded_len` and then writes into
     // it, so a disagreement between the two is a buffer overrun.
     for shift in 0 .. 62
-        let n = bits.shl(1, shift)
+        let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(varint.encoded_len(n), bytes.len(varint.encode(n)))
         test.assert_eq(varint.encoded_len(0 - n), bytes.len(varint.encode(0 - n)))
@@ -101,7 +104,7 @@ fn test_encoded_len_agrees_with_what_encode_writes() [io]
 @test
 fn test_encoded_len32_agrees_with_what_encode32_writes() [io]
     for shift in 0 .. 31
-        let n = bits.shl(1, shift)
+        let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(varint.encoded_len32(n), bytes.len(varint.encode32(n)))
         test.assert_eq(varint.encoded_len32(0 - n), bytes.len(varint.encode32(0 - n)))
@@ -112,7 +115,7 @@ fn test_nothing_exceeds_the_advertised_maximum() [io]
     // known, so no value may need more than it.
     test.assert_eq(varint.max_len(), 10)
     test.assert_eq(varint.max_len32(), 5)
-    test.assert_true(varint.encoded_len(bits.shl(1, 63)) <= varint.max_len(),
+    test.assert_true(varint.encoded_len(1 << 63) <= varint.max_len(),
                      "a 64-bit value exceeded max_len")
     test.assert_true(varint.encoded_len32(varint.min32()) <= varint.max_len32(),
                      "a 32-bit value exceeded max_len32")

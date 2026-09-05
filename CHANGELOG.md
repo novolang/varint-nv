@@ -4,6 +4,22 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.1
+
+A patch: the wire format is the wire format.  The Protocol Buffers
+`sint32` / `sint64` table, the error vocabulary and the 32-bit range
+checks all still pass.
+
+- **The manifest carries the fields the registry browses by.**
+  `category`, `tags`, `repository` and `maintainers` were added after
+  `0.1.0` was published, and a published version is never replaced, so
+  this release is the first one the packages page can shelve and
+  filter.
+- **The suite's constants are written with the operators.**  `1 << 63`
+  and `1 << shift` where they were `bits.shl` calls.  The module itself
+  has no bit arithmetic to rewrite: it is the ZigZag fold and the
+  LEB128 byte loop composed, and both live in the packages under it.
+
 ## 0.1.0
 
 First release: `max_len`, `encoded_len`, `encode_into`, `encode`,
