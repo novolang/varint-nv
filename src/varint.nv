@@ -1,0 +1,231 @@
+// Varint — a signed integer on a wire, in as few bytes as its
+// magnitude needs.
+//
+// What it is.  LEB128 spends one byte per seven bits, so it is cheap
+// for small numbers and expensive for large ones — and two's complement
+// makes every negative number large, so a plain LEB128 of -1 is ten
+// bytes.  ZigZag renumbers the integers first, 0, -1, 1, -2, 2, …, so
+// that magnitude rather than sign decides the size.  Fold, then encode:
+// that pairing is what Protocol Buffers calls `sint32` and `sint64`,
+// and this module is the two halves as one call.
+//
+// What it does.  `encode` and `decode` at 64 bits and at 32, in an
+// in-place form over a cursor and an allocating form that sizes its own
+// buffer, plus `decode_at` for a caller walking a buffer by offset.
+// `encoded_len` says how many bytes a value will take and `max_len` how
+// many any value can take.
+//
+// How to use it.  The in-place pair takes a cursor over a buffer the
+// caller owns, and allocates nothing:
+//
+//     var c = bytes.cursor_le(bytes.zeros(varint.max_len()))
+//     let n = varint.encode_into(c, 0 - 1)        // 1 byte: 01
+//
+// The allocating pair is one call:
+//
+//     let wire = varint.encode(0 - 75)            // 95 01
+//     let back = varint.decode(wire)!             // -75
+//
+// A malformed input is a value, never a panic: `VarintError` says the
+// input ran out, the number does not fit 64 bits, or the number is
+// outside the signed 32-bit range the 32-bit pair is defined over.
+//
+// What it costs.  The fold is two shifts and an xor, branch-free; the
+// byte loop is one shift, one mask and one write per output byte.
+// Neither allocates, and the arithmetic is `Int` throughout, so nothing
+// here needs a heap.
+//
+// A word on the two widths.  The 64-bit pair covers the whole signed
+// range and takes up to ten bytes.  The 32-bit pair is defined over the
+// signed 32-bit range — `fits32` is the question to ask at the edge
+// where the number arrives — and takes up to five, which is why a
+// protocol that knows its numbers are 32-bit reaches for it.
+
+use std.bytes
+use leb128
+use zigzag
+
+// ── How much room a value needs ──────────────────────────────────────
+
+// The most bytes a 64-bit value can occupy.  The fold is a bijection
+// onto the unsigned 64-bit range, so this is LEB128's own bound.
+pub fn max_len() -> Int
+    leb128.max_len()
+
+// The most bytes a 32-bit value can occupy.  The fold stays inside 32
+// bits, and five 7-bit groups carry 35 — one group more than enough.
+pub fn max_len32() -> Int
+    5
+
+// How many bytes `value` will occupy at 64 bits, without encoding it.
+pub fn encoded_len(value: Int) -> Int
+    leb128.encoded_len(zigzag.encode64(value))
+
+// How many bytes `value` will occupy at 32 bits, without encoding it.
+pub fn encoded_len32(value: Int) -> Int
+    leb128.encoded_len(zigzag.encode32(value))
+
+// ── The range the 32-bit pair is defined over ────────────────────────
+
+// The lowest value the 32-bit pair encodes exactly.
+pub fn min32() -> Int
+    zigzag.min32()
+
+// The highest value the 32-bit pair encodes exactly.
+pub fn max32() -> Int
+    zigzag.max32()
+
+// Whether `n` is inside that range.  The check a caller makes once, at
+// the edge where the number arrives, rather than at every write.
+pub fn fits32(n: Int) -> Bool
+    zigzag.fits32(n)
+
+// ── What can go wrong on the way in ──────────────────────────────────
+
+// What went wrong while reading, and after how many bytes.  All three
+// are input faults rather than programming mistakes, so all three are
+// values.
+pub enum VarintError
+    // The input ended while a continuation bit was still set.
+    Truncated(after: Int)
+    // The groups read so far already exceed 64 bits.
+    Overflow(after: Int)
+    // The number is well formed but outside the signed 32-bit range,
+    // so a 32-bit reader cannot answer with it.
+    NotInt32(after: Int)
+
+impl Error for VarintError
+    fn message(self) -> Str
+        match self
+            Truncated(after) => "varint: input ended after ${after} byte(s) with the varint unfinished"
+            Overflow(after)  => "varint: the varint exceeds 64 bits after ${after} byte(s)"
+            NotInt32(after)  => "varint: the varint after ${after} byte(s) is outside the signed 32-bit range"
+
+// A `Leb128Error` said in this module's vocabulary.  The byte loop is
+// LEB128's, so its two faults are this module's two faults; the third
+// is about the 32-bit range and only the 32-bit readers can raise it.
+fn lifted(e: Leb128Error) -> VarintError
+    match e
+        Truncated(after) => VarintError.Truncated(after: after)
+        Overflow(after)  => VarintError.Overflow(after: after)
+
+// ── 64 bits ──────────────────────────────────────────────────────────
+
+// `value` at the cursor, in as many bytes as it needs; the count is the
+// return.  Writes into the caller's buffer and allocates nothing.
+//
+// The cursor must have `encoded_len(value)` bytes of room — reserving
+// `max_len()` always suffices.  Too little room is a panic, exactly as
+// it is for `c.put_u8` and for `xs[i]`: a buffer the caller sized wrong
+// is a mistake in the program, not a value the program should carry.
+pub fn encode_into(mut dst: Cursor, value: Int) -> Int
+    leb128.encode_into(dst, zigzag.encode64(value))
+
+// `value` as a fresh buffer of exactly its own length.  One allocation,
+// for the caller that is building a message rather than filling a frame.
+pub fn encode(value: Int) -> Bytes
+    leb128.encode(zigzag.encode64(value))
+
+// The varint at the cursor, leaving the cursor on the byte after it.
+// Reads out of the caller's buffer and allocates nothing.
+//
+// The cursor's position after a successful read is how far the number
+// reached, so a caller decoding a run of varints needs nothing else.
+pub fn decode_from(mut src: Cursor) -> Result<Int, VarintError>
+    match leb128.decode_from(src)
+        Ok(folded) => Ok(zigzag.decode64(folded))
+        Err(e)     => Err(lifted(e))
+
+// The varint at the start of `src`, ignoring whatever follows it.  The
+// convenience form: it builds a cursor and throws it away, so a caller
+// reading a run of varints should hold one cursor instead.
+pub fn decode(src: Bytes) -> Result<Int, VarintError>
+    var c = bytes.cursor_le(src)
+    decode_from(c)
+
+// A varint and the number of bytes it occupied.  The pair is one value
+// rather than two returns because a reader that has the value and not
+// the length cannot find the next field.
+pub struct Decoded
+    value: Int
+    len: Int
+
+// The varint at `off` in `src`, with the length it took.  For a caller
+// walking a buffer by offset rather than by cursor — a table of
+// varint-encoded entries, a format that gives each record's start.
+//
+// An offset outside the buffer is `Truncated` rather than a panic: an
+// offset read out of the data being decoded is input, and input is
+// never a reason to crash.
+pub fn decode_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
+    match read_folded_at(src, off)
+        Err(e) => Err(e)
+        Ok(d)  => Ok(Decoded { value: zigzag.decode64(d.value), len: d.len })
+
+// ── 32 bits ──────────────────────────────────────────────────────────
+
+// `value` at the cursor, folded onto 32 bits; the count is the return.
+// Defined over `fits32` — a value outside that range folds to a
+// different number than every other implementation would produce, so
+// check at the edge rather than here.
+pub fn encode32_into(mut dst: Cursor, value: Int) -> Int
+    leb128.encode_into(dst, zigzag.encode32(value))
+
+// `value` folded onto 32 bits, as a fresh buffer of its own length.
+pub fn encode32(value: Int) -> Bytes
+    leb128.encode(zigzag.encode32(value))
+
+// The 32-bit varint at the cursor, leaving the cursor after it.  A
+// well-formed number outside the signed 32-bit range is `NotInt32`:
+// the bytes are a valid varint, so the fault is the reader's width
+// rather than the encoding, and saying which one it is lets a caller
+// re-read the same bytes at 64 bits.
+pub fn decode32_from(mut src: Cursor) -> Result<Int, VarintError>
+    let before = src.pos()
+    match leb128.decode_from(src)
+        Err(e)     => Err(lifted(e))
+        Ok(folded) => narrowed(folded, src.pos() - before)
+
+// The 32-bit varint at the start of `src`, ignoring what follows it.
+pub fn decode32(src: Bytes) -> Result<Int, VarintError>
+    var c = bytes.cursor_le(src)
+    decode32_from(c)
+
+// The 32-bit varint at `off` in `src`, with the length it took.
+pub fn decode32_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
+    match read_folded_at(src, off)
+        Err(e) => Err(e)
+        Ok(d)  =>
+            match narrowed(d.value, d.len)
+                Err(e) => Err(e)
+                Ok(v)  => Ok(Decoded { value: v, len: d.len })
+
+// ── The two pieces both widths share ─────────────────────────────────
+
+// The FOLDED value at `off` and the bytes it took, with the offset
+// itself treated as input.  Both `decode_at` forms differ only in what
+// they do with the folded number, so the walk lives here once.
+//
+// `leb128.decode_at` answers the same question, and is deliberately not
+// used: it arrived in a later release than this package's requirement
+// admits, and a package must call only what the range it publishes
+// promises.
+fn read_folded_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
+    if off < 0 or off > bytes.len(src)
+        Err(Truncated(after: 0))
+    else
+        var c = bytes.cursor_le(src)
+        c.seek(off)
+        match leb128.decode_from(c)
+            Err(e)     => Err(lifted(e))
+            Ok(folded) => Ok(Decoded { value: folded, len: c.pos() - off })
+
+// A folded 64-bit value read as a 32-bit one.  The fold of a signed
+// 32-bit number never reaches bit 32, so anything above `0xffffffff` —
+// which includes every folded value at or above 2^63, carried as a
+// negative `Int` — is a number this width cannot answer with.
+fn narrowed(folded: Int, used: Int) -> Result<Int, VarintError>
+    if folded < 0 or folded > 0xffffffff
+        Err(NotInt32(after: used))
+    else
+        Ok(zigzag.decode32(folded))

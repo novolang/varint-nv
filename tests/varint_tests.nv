@@ -1,0 +1,220 @@
+// varint_tests.nv — the Protocol Buffers `sint32` / `sint64` vectors,
+// the round trip over both widths, and each way an input can be wrong.
+//
+// Run from the package directory:
+//   novo test tests/varint_tests.nv
+//
+// The vectors are the bytes Protocol Buffers writes for a signed
+// varint, so the suite is evidence that this pairing is the pairing
+// every other implementation uses, not merely a self-consistent one.
+
+use std.bytes
+use std.test
+use varint
+
+@test
+fn test_the_first_values_take_one_byte_each() [io]
+    // The fold's order is 0, -1, 1, -2, 2, …, so the first five values
+    // by magnitude are the first five bytes.
+    test.assert_eq(bytes.to_hex(varint.encode(0)), "00")
+    test.assert_eq(bytes.to_hex(varint.encode(0 - 1)), "01")
+    test.assert_eq(bytes.to_hex(varint.encode(1)), "02")
+    test.assert_eq(bytes.to_hex(varint.encode(0 - 2)), "03")
+    test.assert_eq(bytes.to_hex(varint.encode(2)), "04")
+
+@test
+fn test_the_one_byte_boundary_is_at_a_magnitude_of_64() [io]
+    // One byte carries seven bits of the FOLDED value, so it holds
+    // -64 .. 63 — half the range a plain LEB128 byte would.
+    test.assert_eq(bytes.to_hex(varint.encode(63)), "7e")
+    test.assert_eq(bytes.to_hex(varint.encode(0 - 64)), "7f")
+    test.assert_eq(bytes.to_hex(varint.encode(64)), "8001")
+    test.assert_eq(bytes.to_hex(varint.encode(0 - 65)), "8101")
+
+@test
+fn test_the_protobuf_examples() [io]
+    // 150 and -75, the two numbers the encoding documentation walks
+    // through for `sint64`.
+    test.assert_eq(bytes.to_hex(varint.encode(150)), "ac02")
+    test.assert_eq(bytes.to_hex(varint.encode(0 - 75)), "9501")
+
+@test
+fn test_the_32_bit_ends() [io]
+    test.assert_eq(bytes.to_hex(varint.encode32(varint.max32())), "feffffff0f")
+    test.assert_eq(bytes.to_hex(varint.encode32(varint.min32())), "ffffffff0f")
+
+@test
+fn test_the_64_bit_ends() [io]
+    // 2^63 - 1 folds to 2^64 - 2 and -2^63 to 2^64 - 1, so both take
+    // all ten bytes and differ only in the first.
+    let top = bits.shr(0 - 1, 1)
+    let bottom = bits.shl(1, 63)
+    test.assert_eq(bytes.to_hex(varint.encode(top)), "feffffffffffffffff01")
+    test.assert_eq(bytes.to_hex(varint.encode(bottom)), "ffffffffffffffffff01")
+
+@test
+fn test_the_two_widths_agree_wherever_both_are_defined() [io]
+    // Inside the signed 32-bit range the two pairs must write the same
+    // bytes: the fold is the same renumbering, and the byte loop is the
+    // same loop.
+    for shift in 0 .. 31
+        let n = bits.shl(1, shift)
+        test.case("1 << ${shift}")
+        test.assert_eq(bytes.to_hex(varint.encode32(n)), bytes.to_hex(varint.encode(n)))
+        test.assert_eq(bytes.to_hex(varint.encode32(0 - n)), bytes.to_hex(varint.encode(0 - n)))
+
+// A value written and read straight back.  The round trip is the
+// property under test, so it is worth a name rather than two nested
+// calls at every assertion.
+fn round_trip(n: Int) -> Int
+    varint.decode(varint.encode(n))!
+
+fn round_trip32(n: Int) -> Int
+    varint.decode32(varint.encode32(n))!
+
+@test
+fn test_round_trip_over_the_powers_of_two_at_64_bits() [io]
+    for shift in 0 .. 62
+        let n = bits.shl(1, shift)
+        test.case("1 << ${shift}")
+        test.assert_eq(round_trip(n), n)
+        test.assert_eq(round_trip(0 - n), 0 - n)
+
+@test
+fn test_round_trip_over_the_powers_of_two_at_32_bits() [io]
+    for shift in 0 .. 31
+        let n = bits.shl(1, shift)
+        test.case("1 << ${shift}")
+        test.assert_eq(round_trip32(n), n)
+        test.assert_eq(round_trip32(0 - n), 0 - n)
+
+@test
+fn test_encoded_len_agrees_with_what_encode_writes() [io]
+    // A caller sizes a buffer from `encoded_len` and then writes into
+    // it, so a disagreement between the two is a buffer overrun.
+    for shift in 0 .. 62
+        let n = bits.shl(1, shift)
+        test.case("1 << ${shift}")
+        test.assert_eq(varint.encoded_len(n), bytes.len(varint.encode(n)))
+        test.assert_eq(varint.encoded_len(0 - n), bytes.len(varint.encode(0 - n)))
+
+@test
+fn test_encoded_len32_agrees_with_what_encode32_writes() [io]
+    for shift in 0 .. 31
+        let n = bits.shl(1, shift)
+        test.case("1 << ${shift}")
+        test.assert_eq(varint.encoded_len32(n), bytes.len(varint.encode32(n)))
+        test.assert_eq(varint.encoded_len32(0 - n), bytes.len(varint.encode32(0 - n)))
+
+@test
+fn test_nothing_exceeds_the_advertised_maximum() [io]
+    // `max_len` is what a caller reserves when the value is not yet
+    // known, so no value may need more than it.
+    test.assert_eq(varint.max_len(), 10)
+    test.assert_eq(varint.max_len32(), 5)
+    test.assert_true(varint.encoded_len(bits.shl(1, 63)) <= varint.max_len(),
+                     "a 64-bit value exceeded max_len")
+    test.assert_true(varint.encoded_len32(varint.min32()) <= varint.max_len32(),
+                     "a 32-bit value exceeded max_len32")
+
+@test
+fn test_the_in_place_form_writes_into_the_callers_buffer() [io]
+    // A cursor owns its buffer, so a write through one lands where the
+    // caller can read it — which is why the in-place form takes a
+    // cursor rather than a buffer and an offset.
+    var c = bytes.cursor_le(bytes.zeros(varint.max_len() * 3))
+    let a = varint.encode_into(c, 0 - 1)
+    let b = varint.encode_into(c, 150)
+    let d = varint.encode32_into(c, 0 - 75)
+    test.assert_eq(a, 1)
+    test.assert_eq(b, 2)
+    test.assert_eq(d, 2)
+    test.assert_eq(bytes.to_hex(bytes.slice(c.finish(), 0, a + b + d)), "01ac029501")
+
+@test
+fn test_a_run_of_varints_is_read_with_one_cursor() [io]
+    // The cursor's position after a read is where the next value
+    // starts, so a reader walking a run needs nothing else.
+    var w = bytes.cursor_le(bytes.zeros(varint.max_len() * 3))
+    let _ = varint.encode_into(w, 0 - 1)
+    let _ = varint.encode_into(w, 150)
+    let _ = varint.encode_into(w, 0)
+    let wire = w.finish()
+    var r = bytes.cursor_le(wire)
+    test.assert_eq(varint.decode_from(r)!, 0 - 1)
+    test.assert_eq(varint.decode_from(r)!, 150)
+    test.assert_eq(varint.decode_from(r)!, 0)
+
+@test
+fn test_a_run_of_varints_is_walked_by_offset() [io]
+    // `decode_at` answers the value AND the length, which is the pair a
+    // caller holding offsets rather than a cursor needs.
+    let wire = bytes.from_hex("01ac0200") ?? bytes.zeros(0)
+    var off = 0
+    let first = varint.decode_at(wire, off)!
+    test.assert_eq(first.value, 0 - 1)
+    test.assert_eq(first.len, 1)
+    off = off + first.len
+    let second = varint.decode_at(wire, off)!
+    test.assert_eq(second.value, 150)
+    test.assert_eq(second.len, 2)
+    off = off + second.len
+    let third = varint.decode32_at(wire, off)!
+    test.assert_eq(third.value, 0)
+    test.assert_eq(third.len, 1)
+
+@test
+fn test_an_offset_outside_the_buffer_is_a_value() [io]
+    let wire = bytes.from_hex("01") ?? bytes.zeros(0)
+    match varint.decode_at(wire, 9)
+        Ok(_)  => test.fail("an offset past the end decoded")
+        Err(e) => test.assert_true(str.contains(e.message(), "input ended"),
+                                   "wrong message: ${e.message()}")
+    match varint.decode32_at(wire, 0 - 1)
+        Ok(_)  => test.fail("a negative offset decoded")
+        Err(_) => test.assert_true(true, "")
+
+@test
+fn test_a_truncated_varint_is_a_value() [io]
+    // The continuation bit is set on both bytes, so the number is
+    // unfinished when the input ends.
+    let wire = bytes.from_hex("8080") ?? bytes.zeros(0)
+    match varint.decode(wire)
+        Ok(v)  => test.fail("a truncated varint decoded to ${v}")
+        Err(e) => test.assert_true(str.contains(e.message(), "unfinished"),
+                                   "wrong message: ${e.message()}")
+
+@test
+fn test_a_varint_wider_than_64_bits_is_a_value() [io]
+    // Ten groups reach bit 63, so a tenth group above 1 is a number
+    // that does not fit.
+    let wire = bytes.from_hex("ffffffffffffffffff02") ?? bytes.zeros(0)
+    match varint.decode(wire)
+        Ok(v)  => test.fail("an oversized varint decoded to ${v}")
+        Err(e) => test.assert_true(str.contains(e.message(), "exceeds 64 bits"),
+                                   "wrong message: ${e.message()}")
+
+@test
+fn test_a_number_outside_the_32_bit_range_is_a_value_at_32_bits() [io]
+    // The bytes are a valid varint; it is the reader's width that
+    // cannot answer with them, which is why the fault names the width
+    // and the same bytes still decode at 64 bits.
+    let wire = varint.encode(2147483648)
+    match varint.decode32(wire)
+        Ok(v)  => test.fail("a value above the 32-bit range decoded to ${v}")
+        Err(e) => test.assert_true(str.contains(e.message(), "32-bit range"),
+                                   "wrong message: ${e.message()}")
+    test.assert_eq(varint.decode(wire)!, 2147483648)
+
+@test
+fn test_a_32_bit_read_of_a_run_leaves_the_cursor_where_it_stopped() [io]
+    var c = bytes.cursor_le(varint.encode32(0 - 75))
+    test.assert_eq(varint.decode32_from(c)!, 0 - 75)
+    test.assert_eq(c.remaining(), 0)
+
+@test
+fn test_fits32_names_the_range_the_32_bit_pair_is_defined_over() [io]
+    test.assert_eq(varint.fits32(varint.min32()), true)
+    test.assert_eq(varint.fits32(varint.max32()), true)
+    test.assert_eq(varint.fits32(varint.min32() - 1), false)
+    test.assert_eq(varint.fits32(varint.max32() + 1), false)
