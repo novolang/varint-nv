@@ -1,3 +1,5 @@
+> Developed in the novo-lang monorepo under `orbit/varint-nv`, which is the source of truth until this package graduates out of it.  This repository is a mirror: it is where CI runs and where releases are tagged, and changes are made upstream.
+
 # varint-nv
 
 Signed varints on a wire. LEB128 spends one byte per seven bits, so it
