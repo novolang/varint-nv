@@ -4,7 +4,10 @@ version     = "0.1.0"
 description = "Signed varints on a wire: the ZigZag fold and the LEB128 byte loop as one call, at 32 and 64 bits, so that -1 costs one byte instead of ten.  The pairing Protocol Buffers calls sint32 and sint64.  Encodes into a caller's buffer without allocating; malformed input is a value, never a panic."
 license     = "Apache-2.0"
 stability   = "experimental"
-keywords    = ["varint", "zigzag", "leb128", "protobuf", "encoding"]
+category    = "encoding"
+tags        = ["varint", "zigzag", "leb128", "protobuf"]
+repository  = "https://github.com/novolang/varint-nv"
+maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
 # The README is the package's one page, and its own first heading is the
