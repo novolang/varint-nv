@@ -13,18 +13,8 @@
 // in-place form over a cursor and an allocating form that sizes its own
 // buffer, plus `decode_at` for a caller walking a buffer by offset.
 // `encoded_len` says how many bytes a value will take and `max_len` how
-// many any value can take.
-//
-// How to use it.  The in-place pair takes a cursor over a buffer the
-// caller owns, and allocates nothing:
-//
-//     var c = bytes.cursor_le(bytes.zeros(varint.max_len()))
-//     let n = varint.encode_into(c, 0 - 1)        // 1 byte: 01
-//
-// The allocating pair is one call:
-//
-//     let wire = varint.encode(0 - 75)            // 95 01
-//     let back = varint.decode(wire)!             // -75
+// many any value can take.  Each of those carries a worked example
+// below.
 //
 // A malformed input is a value, never a panic: `VarintError` says the
 // input ran out, the number does not fit 64 bits, or the number is
@@ -47,44 +37,97 @@ use zigzag
 
 // ── How much room a value needs ──────────────────────────────────────
 
-// The most bytes a 64-bit value can occupy.  The fold is a bijection
-// onto the unsigned 64-bit range, so this is LEB128's own bound.
+// Answer the most bytes a 64-bit value can occupy: ten.
+//
+// The fold is a bijection onto the unsigned 64-bit range, so this is
+// LEB128's own bound and not a looser one.  It is the room to reserve
+// for a value you have not computed yet; `encoded_len` is the exact
+// answer once you have.
 pub fn max_len() -> Int
     leb128.max_len()
 
-// The most bytes a 32-bit value can occupy.  The fold stays inside 32
-// bits, and five 7-bit groups carry 35 — one group more than enough.
+// Answer the most bytes a 32-bit value can occupy: five.
+//
+// The fold stays inside 32 bits, and five 7-bit groups carry 35 — one
+// group more than enough.  Half the reservation of the 64-bit form,
+// which is the reason a protocol that knows its numbers are 32-bit
+// reaches for that pair.
 pub fn max_len32() -> Int
     5
 
-// How many bytes `value` will occupy at 64 bits, without encoding it.
+// Answer how many bytes `value` will occupy at 64 bits, without
+// encoding it.
+//
+// Magnitude decides, not sign: `-1` and `1` are the same length, which
+// is the whole point of folding first.  Nothing is refused and nothing
+// is allocated.
+//
+// ```novo
+// // Magnitude decides the length, not sign: a plain LEB128 would
+// // spend ten bytes on each of the negatives here.
+// println("${varint.encoded_len(0 - 1)} ${varint.encoded_len(1)}")         // 1 1
+// println("${varint.encoded_len(0 - 1000)} ${varint.encoded_len(1000)}")   // 2 2
+//
+// // No value exceeds the reservation.
+// println("${varint.encoded_len(1 << 62)} ${varint.max_len()}")      // 10 10
+// ```
 pub fn encoded_len(value: Int) -> Int
     leb128.encoded_len(zigzag.encode64(value))
 
-// How many bytes `value` will occupy at 32 bits, without encoding it.
+// Answer how many bytes `value` will occupy at 32 bits, without
+// encoding it.
+//
+// Defined over the signed 32-bit range — outside it the fold means
+// something else, so ask `fits32` first.  Never more than `max_len32()`.
+//
+// ```novo
+// println("${varint.encoded_len32(0 - 1)}")                              // 1
+// println("${varint.encoded_len32(varint.min32())} ${varint.max_len32()}")   // 5 5
+// ```
 pub fn encoded_len32(value: Int) -> Int
     leb128.encoded_len(zigzag.encode32(value))
 
 // ── The range the 32-bit pair is defined over ────────────────────────
 
-// The lowest value the 32-bit pair encodes exactly.
+// Answer the lowest value the 32-bit pair encodes exactly, `-2^31`.
+//
+// The bottom of Protocol Buffers' `sint32` range.  See `fits32`, which
+// asks about both ends at once and carries the example.
 pub fn min32() -> Int
     zigzag.min32()
 
-// The highest value the 32-bit pair encodes exactly.
+// Answer the highest value the 32-bit pair encodes exactly, `2^31 - 1`.
+//
+// The top of the same range.  See `fits32`.
 pub fn max32() -> Int
     zigzag.max32()
 
-// Whether `n` is inside that range.  The check a caller makes once, at
-// the edge where the number arrives, rather than at every write.
+// Answer whether `n` is inside the range the 32-bit pair is defined
+// over — the check a caller makes once, where the number arrives.
+//
+// `encode32` does not check and cannot usefully: it folds to a
+// well-formed number that means something else to every other
+// implementation, and nothing downstream would notice.  The 64-bit pair
+// needs no such check, because every `Int` is in its range.
+//
+// ```novo
+// println("${varint.fits32(varint.max32())}")       // true
+// println("${varint.fits32(varint.max32() + 1)}")   // false
+// println("${varint.fits32(varint.min32() - 1)}")   // false
+// ```
 pub fn fits32(n: Int) -> Bool
     zigzag.fits32(n)
 
 // ── What can go wrong on the way in ──────────────────────────────────
 
-// What went wrong while reading, and after how many bytes.  All three
-// are input faults rather than programming mistakes, so all three are
-// values.
+// What went wrong while reading, and after how many bytes.
+//
+// All three are input faults rather than programming mistakes, so all
+// three are values.  `Truncated` and `Overflow` come from the byte
+// loop and can happen at either width; `NotInt32` is about the reader's
+// width rather than the bytes, so a caller that gets it can re-read the
+// same bytes at 64 bits and succeed.  `decode` and `decode32` carry the
+// worked examples.
 pub enum VarintError
     // The input ended while a continuation bit was still set.
     Truncated(after: Int)
@@ -94,7 +137,13 @@ pub enum VarintError
     // so a 32-bit reader cannot answer with it.
     NotInt32(after: Int)
 
+// The standard `Error` implementation, so a bad varint can be reported
+// by anything that reports errors.
 impl Error for VarintError
+    // Answer the one-line report: what was wrong, and after how many
+    // bytes of input.  The count is in the text rather than left for
+    // the caller to append, because the caller printing an error is the
+    // one least likely to still have it to hand.
     fn message(self) -> Str
         match self
             Truncated(after) => "varint: input ended after ${after} byte(s) with the varint unfinished"
@@ -111,52 +160,126 @@ fn lifted(e: Leb128Error) -> VarintError
 
 // ── 64 bits ──────────────────────────────────────────────────────────
 
-// `value` at the cursor, in as many bytes as it needs; the count is the
-// return.  Writes into the caller's buffer and allocates nothing.
+// Write `value` at the cursor in as many bytes as it needs, and answer
+// that count.  Writes into the caller's buffer and allocates nothing.
 //
 // The cursor must have `encoded_len(value)` bytes of room — reserving
 // `max_len()` always suffices.  Too little room is a panic, exactly as
 // it is for `c.put_u8` and for `xs[i]`: a buffer the caller sized wrong
 // is a mistake in the program, not a value the program should carry.
+//
+// ```novo
+// use std.bytes
+//
+// // Two signed fields into one frame, back to back.
+// var out = bytes.cursor_le(bytes.zeros(2 * varint.max_len()))
+// let n = varint.encode_into(out, 0 - 1) + varint.encode_into(out, 300)
+// println("${n}")                                         // 3
+// println(bytes.to_hex(bytes.slice(out.finish(), 0, n)))  // 01d804
+// ```
 pub fn encode_into(mut dst: Cursor, value: Int) -> Int
     leb128.encode_into(dst, zigzag.encode64(value))
 
-// `value` as a fresh buffer of exactly its own length.  One allocation,
-// for the caller that is building a message rather than filling a frame.
+// Encode `value` into a fresh buffer of exactly its own length.
+//
+// One allocation, for the caller that is building a message rather than
+// filling a frame.  `decode` inverts it exactly over the whole signed
+// 64-bit range, which is the round trip worth relying on.
+//
+// ```novo
+// use std.bytes
+//
+// // -1 is one byte here, and ten in a plain LEB128.
+// println(bytes.to_hex(varint.encode(0 - 1)))    // 01
+// println(bytes.to_hex(varint.encode(0 - 75)))   // 9501
+//
+// // The round trip, in the direction a caller depends on.
+// match varint.decode(varint.encode(0 - 75))
+//     Ok(v)  => println("${v}")                  // -75
+//     Err(e) => println(e.message())
+// ```
 pub fn encode(value: Int) -> Bytes
     leb128.encode(zigzag.encode64(value))
 
-// The varint at the cursor, leaving the cursor on the byte after it.
-// Reads out of the caller's buffer and allocates nothing.
+// Read the varint at the cursor, leaving the cursor on the byte after
+// it.  Reads out of the caller's buffer and allocates nothing.
 //
 // The cursor's position after a successful read is how far the number
-// reached, so a caller decoding a run of varints needs nothing else.
+// reached, so a caller decoding a run of varints needs nothing else —
+// it calls again.
+//
+// ```novo
+// use std.bytes
+//
+// // The two fields `encode_into`'s example wrote: -1, then 300.
+// var r = bytes.cursor_le(bytes.from_hex("01d804") ?? bytes.zeros(0))
+// match varint.decode_from(r)
+//     Ok(v)  => println("${v} ends at ${r.pos()}")   // -1 ends at 1
+//     Err(e) => println(e.message())
+// match varint.decode_from(r)
+//     Ok(v)  => println("${v} ends at ${r.pos()}")   // 300 ends at 3
+//     Err(e) => println(e.message())
+// ```
 pub fn decode_from(mut src: Cursor) -> Result<Int, VarintError>
     match leb128.decode_from(src)
         Ok(folded) => Ok(zigzag.decode64(folded))
         Err(e)     => Err(lifted(e))
 
-// The varint at the start of `src`, ignoring whatever follows it.  The
-// convenience form: it builds a cursor and throws it away, so a caller
-// reading a run of varints should hold one cursor instead.
+// Read the varint at the start of `src`, ignoring whatever follows it.
+//
+// The convenience form: it builds a cursor and throws it away, so a
+// caller reading a run of varints should hold one cursor and call
+// `decode_from` instead.  Malformed input is an `Err` carrying the byte
+// count reached, never a panic.
+//
+// ```novo
+// use std.bytes
+//
+// match varint.decode(bytes.from_hex("9501") ?? bytes.zeros(0))
+//     Ok(v)  => println("${v}")          // -75
+//     Err(e) => println(e.message())
+//
+// // A continuation bit with nothing after it: an answer, not a crash.
+// match varint.decode(bytes.from_hex("95") ?? bytes.zeros(0))
+//     Ok(v)  => println("${v}")
+//     Err(e) => println(e.message())     // varint: input ended after 1 byte(s) …
+// ```
 pub fn decode(src: Bytes) -> Result<Int, VarintError>
     var c = bytes.cursor_le(src)
     decode_from(c)
 
-// A varint and the number of bytes it occupied.  The pair is one value
-// rather than two returns because a reader that has the value and not
-// the length cannot find the next field.
+// A varint and the number of bytes it occupied.
+//
+// The pair is one value rather than two returns because a reader that
+// has the value and not the length cannot find the next field.
+// `decode_at` and `decode32_at` are what answer one.
 pub struct Decoded
     value: Int
     len: Int
 
-// The varint at `off` in `src`, with the length it took.  For a caller
-// walking a buffer by offset rather than by cursor — a table of
-// varint-encoded entries, a format that gives each record's start.
+// Read the varint at `off` in `src`, and answer it with the length it
+// took.
+//
+// For a caller walking a buffer by offset rather than by cursor — a
+// table of varint-encoded entries, a format that gives each record's
+// start.  The next offset is `off + d.len`.
 //
 // An offset outside the buffer is `Truncated` rather than a panic: an
 // offset read out of the data being decoded is input, and input is
 // never a reason to crash.
+//
+// ```novo
+// use std.bytes
+//
+// // -1 then 300; the second starts where the first one ended.
+// let buf = bytes.from_hex("01d804") ?? bytes.zeros(0)
+// match varint.decode_at(buf, 0)
+//     Ok(d)  => println("${d.value} in ${d.len} byte(s)")   // -1 in 1 byte(s)
+//     Err(e) => println(e.message())
+// match varint.decode_at(buf, 1)
+//     Ok(d)  => println("${d.value} in ${d.len} byte(s)")   // 300 in 2 byte(s)
+//     Err(e) => println(e.message())
+// ```
 pub fn decode_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
     match read_folded_at(src, off)
         Err(e) => Err(e)
@@ -164,34 +287,87 @@ pub fn decode_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
 
 // ── 32 bits ──────────────────────────────────────────────────────────
 
-// `value` at the cursor, folded onto 32 bits; the count is the return.
-// Defined over `fits32` — a value outside that range folds to a
+// Write `value` at the cursor folded onto 32 bits, and answer the byte
+// count.
+//
+// Defined over `fits32`: a value outside that range folds to a
 // different number than every other implementation would produce, so
-// check at the edge rather than here.
+// the check belongs at the edge where the number arrives rather than
+// here.  Reserving `max_len32()` always suffices.
+//
+// ```novo
+// use std.bytes
+//
+// var out = bytes.cursor_le(bytes.zeros(varint.max_len32()))
+// let n = varint.encode32_into(out, 0 - 75)
+// println("${n}")                                         // 2
+// println(bytes.to_hex(bytes.slice(out.finish(), 0, n)))  // 9501
+// ```
 pub fn encode32_into(mut dst: Cursor, value: Int) -> Int
     leb128.encode_into(dst, zigzag.encode32(value))
 
-// `value` folded onto 32 bits, as a fresh buffer of its own length.
+// Encode `value` folded onto 32 bits, as a fresh buffer of its own
+// length.
+//
+// The same bytes as the 64-bit form everywhere both are defined — the
+// fold is one renumbering, and the 32-bit half just has less room above
+// it.  What differs is the ceiling: five bytes rather than ten.
+//
+// ```novo
+// use std.bytes
+//
+// // Inside the 32-bit range the two widths agree byte for byte.
+// println(bytes.to_hex(varint.encode32(0 - 75)))   // 9501
+//
+// match varint.decode32(varint.encode32(varint.min32()))
+//     Ok(v)  => println("${v}")                    // -2147483648
+//     Err(e) => println(e.message())
+// ```
 pub fn encode32(value: Int) -> Bytes
     leb128.encode(zigzag.encode32(value))
 
-// The 32-bit varint at the cursor, leaving the cursor after it.  A
-// well-formed number outside the signed 32-bit range is `NotInt32`:
+// Read the 32-bit varint at the cursor, leaving the cursor after it.
+//
+// A well-formed number outside the signed 32-bit range is `NotInt32`:
 // the bytes are a valid varint, so the fault is the reader's width
 // rather than the encoding, and saying which one it is lets a caller
-// re-read the same bytes at 64 bits.
+// re-read the same bytes at 64 bits.  The cursor is left after the
+// number either way, so that re-read starts from the right place.
 pub fn decode32_from(mut src: Cursor) -> Result<Int, VarintError>
     let before = src.pos()
     match leb128.decode_from(src)
         Err(e)     => Err(lifted(e))
         Ok(folded) => narrowed(folded, src.pos() - before)
 
-// The 32-bit varint at the start of `src`, ignoring what follows it.
+// Read the 32-bit varint at the start of `src`, ignoring what follows.
+//
+// The convenience form of `decode32_from`.  A number that is well
+// formed but too wide is `NotInt32` rather than a truncation or a
+// wrapped value — the reader says which of the two things went wrong,
+// so the caller can decide to widen instead of guessing.
+//
+// ```novo
+// use std.bytes
+//
+// match varint.decode32(bytes.from_hex("9501") ?? bytes.zeros(0))
+//     Ok(v)  => println("${v}")        // -75
+//     Err(e) => println(e.message())
+//
+// // A valid 64-bit varint that no 32-bit reader can answer with.
+// match varint.decode32(varint.encode(1 << 40))
+//     Ok(v)  => println("${v}")
+//     Err(e) => println(e.message())   // varint: … outside the signed 32-bit range
+// ```
 pub fn decode32(src: Bytes) -> Result<Int, VarintError>
     var c = bytes.cursor_le(src)
     decode32_from(c)
 
-// The 32-bit varint at `off` in `src`, with the length it took.
+// Read the 32-bit varint at `off` in `src`, with the length it took.
+//
+// `decode_at` asked at the narrower width: same walk, same `Decoded`,
+// and `NotInt32` for a number this width cannot answer with.  The
+// length is filled in even then, so a caller can skip the field it
+// could not read.
 pub fn decode32_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
     match read_folded_at(src, off)
         Err(e) => Err(e)

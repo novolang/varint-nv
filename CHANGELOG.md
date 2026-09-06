@@ -4,6 +4,25 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.3
+
+Documentation: the reference is generated from the code, and the
+examples in it are doctests.  No code changed — every byte on the wire
+is what 0.1.2 produced, and both dependency ranges are unchanged.
+
+- **Every `pub` item is documented under Go's rule**, the comment block
+  directly above the declaration, its first sentence the summary a
+  reader meets before opening anything.  `VarintError.message`, which
+  had no comment at all, has one.  `novo doc` turns the lot into
+  [the package's page](https://novo-lang.org/packages/varint-nv).
+- **Eleven worked examples, and they run.**  Both widths, both pairs
+  and the offset walk are shown where they are declared, with the bytes
+  written out in hex; so is the difference between a truncated varint
+  and a well-formed one too wide for a 32-bit reader.  A fenced `novo`
+  block in a documentation comment is compiled by `novo doc` and run by
+  `novo test src/varint.nv`, so an example that stopped being true is a
+  failing test rather than a reader's afternoon.
+
 ## 0.1.2
 
 Developed in its own repository from this version.  `novolang/varint-nv` is
