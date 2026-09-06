@@ -1,6 +1,6 @@
 [package]
 name        = "varint-nv"
-version     = "0.1.1"
+version     = "0.1.2"
 description = "Signed varints on a wire: the ZigZag fold and the LEB128 byte loop as one call, at 32 and 64 bits, so that -1 costs one byte instead of ten.  The pairing Protocol Buffers calls sint32 and sint64.  Encodes into a caller's buffer without allocating; malformed input is a value, never a panic."
 license     = "Apache-2.0"
 stability   = "experimental"
