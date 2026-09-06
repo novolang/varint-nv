@@ -34,24 +34,11 @@ the same bytes wherever both are defined; the 32-bit pair simply cannot
 be asked for a number outside its range, and takes at most five bytes
 instead of ten.
 
-| Function | |
-|---|---|
-| `varint.max_len() -> Int` | `10` — the room to reserve for a value not yet computed |
-| `varint.max_len32() -> Int` | `5` — the same, at 32 bits |
-| `varint.encoded_len(value: Int) -> Int` | the bytes `value` will take, without encoding it |
-| `varint.encoded_len32(value: Int) -> Int` | the same, at 32 bits |
-| `varint.encode_into(dst: Cursor, value: Int) -> Int` | `value` at the cursor; the byte count is the return |
-| `varint.encode32_into(dst: Cursor, value: Int) -> Int` | the same, at 32 bits |
-| `varint.encode(value: Int) -> Bytes` | a fresh buffer of exactly the right length |
-| `varint.encode32(value: Int) -> Bytes` | the same, at 32 bits |
-| `varint.decode_from(src: Cursor) -> Result<Int, VarintError>` | the varint at the cursor, leaving it on the next byte |
-| `varint.decode32_from(src: Cursor) -> Result<Int, VarintError>` | the same, at 32 bits |
-| `varint.decode(src: Bytes) -> Result<Int, VarintError>` | the varint at the start of a buffer |
-| `varint.decode32(src: Bytes) -> Result<Int, VarintError>` | the same, at 32 bits |
-| `varint.decode_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>` | the varint at an offset, with the length it took |
-| `varint.decode32_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>` | the same, at 32 bits |
-| `varint.fits32(n: Int) -> Bool` | whether `n` is inside the range the 32-bit pair is defined over |
-| `varint.min32() -> Int` / `varint.max32() -> Int` | the ends of that range |
+The API is on [the package's page](https://novo-lang.org/packages/varint-nv),
+generated from these sources: every `pub` declaration with its signature,
+its effect row and the comment block written above it. A table of names
+here would be a second original, and the second original is the one that
+goes stale.
 
 `VarintError` has three variants and all three are input faults:
 `Truncated` when the input ends with a continuation bit still set,
@@ -147,10 +134,11 @@ Buffers.
 
 ## Dependencies
 
-| Package | Range | Why |
-|---|---|---|
-| [`leb128-nv`](https://novo-lang.org/packages) | `^0.1.0` | the byte loop |
-| [`zigzag-nv`](https://novo-lang.org/packages) | `^0.1.0` | the fold |
+It depends on [`leb128-nv`](https://novo-lang.org/packages/leb128-nv) for
+the byte loop and [`zigzag-nv`](https://novo-lang.org/packages/zigzag-nv)
+for the fold. The ranges are on
+[the package's page](https://novo-lang.org/packages/varint-nv), read from
+this manifest, with the whole closure folded under them.
 
 Both ranges are the widest this package supports, because it calls only
 what each of them shipped in its first release. That matters to you
