@@ -60,7 +60,7 @@ fn test_the_two_widths_agree_wherever_both_are_defined() [io]
     // Inside the signed 32-bit range the two pairs must write the same
     // bytes: the fold is the same renumbering, and the byte loop is the
     // same loop.
-    for shift in 0 .. 31
+    for shift in 0..31
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(bytes.to_hex(varint.encode32(n)), bytes.to_hex(varint.encode(n)))
@@ -77,7 +77,7 @@ fn round_trip32(n: Int) -> Int
 
 @test
 fn test_round_trip_over_the_powers_of_two_at_64_bits() [io]
-    for shift in 0 .. 62
+    for shift in 0..62
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(round_trip(n), n)
@@ -85,7 +85,7 @@ fn test_round_trip_over_the_powers_of_two_at_64_bits() [io]
 
 @test
 fn test_round_trip_over_the_powers_of_two_at_32_bits() [io]
-    for shift in 0 .. 31
+    for shift in 0..31
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(round_trip32(n), n)
@@ -95,7 +95,7 @@ fn test_round_trip_over_the_powers_of_two_at_32_bits() [io]
 fn test_encoded_len_agrees_with_what_encode_writes() [io]
     // A caller sizes a buffer from `encoded_len` and then writes into
     // it, so a disagreement between the two is a buffer overrun.
-    for shift in 0 .. 62
+    for shift in 0..62
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(varint.encoded_len(n), bytes.len(varint.encode(n)))
@@ -103,7 +103,7 @@ fn test_encoded_len_agrees_with_what_encode_writes() [io]
 
 @test
 fn test_encoded_len32_agrees_with_what_encode32_writes() [io]
-    for shift in 0 .. 31
+    for shift in 0..31
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(varint.encoded_len32(n), bytes.len(varint.encode32(n)))
