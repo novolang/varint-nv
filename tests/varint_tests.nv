@@ -1,12 +1,13 @@
-// varint_tests.nv — the Protocol Buffers `sint32` / `sint64` vectors,
-// the round trip over both widths, and each way an input can be wrong.
+// The tests over the Protocol Buffers `sint32` and `sint64` vectors, the
+// round trip at both widths, and each way an input can be wrong.
 //
-// Run from the package directory:
+// Run the suite from the package directory.
+//
 //   novo test tests/varint_tests.nv
 //
-// The vectors are the bytes Protocol Buffers writes for a signed
-// varint, so the suite is evidence that this pairing is the pairing
-// every other implementation uses, not merely a self-consistent one.
+// The vectors are the bytes Protocol Buffers writes for a signed varint,
+// so a pass shows that this package writes what other implementations
+// write, and not only what it reads back itself.
 
 use std.bytes
 use std.test
@@ -24,8 +25,8 @@ fn test_the_first_values_take_one_byte_each() [io]
 
 @test
 fn test_the_one_byte_boundary_is_at_a_magnitude_of_64() [io]
-    // One byte carries seven bits of the FOLDED value, so it holds
-    // -64 .. 63 — half the range a plain LEB128 byte would.
+    // One byte carries seven bits of the folded value, so it holds -64
+    // to 63.
     test.assert_eq(bytes.to_hex(varint.encode(63)), "7e")
     test.assert_eq(bytes.to_hex(varint.encode(0 - 64)), "7f")
     test.assert_eq(bytes.to_hex(varint.encode(64)), "8001")
@@ -47,8 +48,8 @@ fn test_the_32_bit_ends() [io]
 fn test_the_64_bit_ends() [io]
     // 2^63 - 1 folds to 2^64 - 2 and -2^63 to 2^64 - 1, so both take
     // all ten bytes and differ only in the first.
-    // The all-ones pattern is named because `>>>` binds LOOSER than
-    // `-`, so `0 - 1 >>> 1` is right and reads wrong.
+    // The all-ones pattern is named because `>>>` binds more loosely
+    // than `-`, so `0 - 1 >>> 1` is correct and easy to misread.
     let all_ones = 0 - 1
     let top = all_ones >>> 1
     let bottom = 1 << 63
@@ -57,18 +58,18 @@ fn test_the_64_bit_ends() [io]
 
 @test
 fn test_the_two_widths_agree_wherever_both_are_defined() [io]
-    // Inside the signed 32-bit range the two pairs must write the same
-    // bytes: the fold is the same renumbering, and the byte loop is the
-    // same loop.
+    // Inside the signed 32-bit range the two pairs write the same bytes.
+    // The fold is the same renumbering, and the byte loop is the same
+    // loop.
     for shift in 0..31
         let n = 1 << shift
         test.case("1 << ${shift}")
         test.assert_eq(bytes.to_hex(varint.encode32(n)), bytes.to_hex(varint.encode(n)))
         test.assert_eq(bytes.to_hex(varint.encode32(0 - n)), bytes.to_hex(varint.encode(0 - n)))
 
-// A value written and read straight back.  The round trip is the
-// property under test, so it is worth a name rather than two nested
-// calls at every assertion.
+// Whether a value written and read straight back is the value.  The
+// round trip is the property under test, so it has a name rather than
+// two nested calls at every assertion.
 fn round_trip(n: Int) -> Int
     varint.decode(varint.encode(n))!
 
@@ -123,8 +124,8 @@ fn test_nothing_exceeds_the_advertised_maximum() [io]
 @test
 fn test_the_in_place_form_writes_into_the_callers_buffer() [io]
     // A cursor owns its buffer, so a write through one lands where the
-    // caller can read it — which is why the in-place form takes a
-    // cursor rather than a buffer and an offset.
+    // caller reads it.  The in-place form takes a cursor rather than a
+    // buffer and an offset for that reason.
     var c = bytes.cursor_le(bytes.zeros(varint.max_len() * 3))
     let a = varint.encode_into(c, 0 - 1)
     let b = varint.encode_into(c, 150)
@@ -150,7 +151,7 @@ fn test_a_run_of_varints_is_read_with_one_cursor() [io]
 
 @test
 fn test_a_run_of_varints_is_walked_by_offset() [io]
-    // `decode_at` answers the value AND the length, which is the pair a
+    // `decode_at` answers the value and the length, which is the pair a
     // caller holding offsets rather than a cursor needs.
     let wire = bytes.from_hex("01ac0200") ?? bytes.zeros(0)
     var off = 0
@@ -199,9 +200,9 @@ fn test_a_varint_wider_than_64_bits_is_a_value() [io]
 
 @test
 fn test_a_number_outside_the_32_bit_range_is_a_value_at_32_bits() [io]
-    // The bytes are a valid varint; it is the reader's width that
-    // cannot answer with them, which is why the fault names the width
-    // and the same bytes still decode at 64 bits.
+    // The bytes are a valid varint, and the reader's width cannot hold
+    // the number.  The fault names the width, and the same bytes still
+    // decode at 64 bits.
     let wire = varint.encode(2147483648)
     match varint.decode32(wire)
         Ok(v)  => test.fail("a value above the 32-bit range decoded to ${v}")

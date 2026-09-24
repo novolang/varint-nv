@@ -1,25 +1,35 @@
 [package]
 name        = "varint-nv"
-version     = "0.1.4"
-description = "Signed varints on a wire: the ZigZag fold and the LEB128 byte loop as one call, at 32 and 64 bits, so that -1 costs one byte instead of ten.  The pairing Protocol Buffers calls sint32 and sint64.  Encodes into a caller's buffer without allocating; malformed input is a value, never a panic."
+version     = "0.1.5"
+description = "Signed varints, the ZigZag fold and the LEB128 byte loop as one call, at 32 and 64 bits, so that -1 takes one byte instead of ten.  The pairing Protocol Buffers calls sint32 and sint64.  Encodes into a caller's buffer without allocating, and answers malformed input as a value rather than a panic."
 license     = "Apache-2.0"
+
+# `experimental` because no program outside this repository has used the
+# package yet, and the tests exercise the functions rather than a
+# consumer's use of them.
 stability   = "experimental"
 category    = "encoding"
+
+# `core`: no function in the package performs input or output or reads
+# the clock, so no public function declares an effect.
 layer       = "core"
 tags        = ["varint", "zigzag", "leb128", "protobuf"]
 repository  = "https://github.com/novolang/varint-nv"
 maintainers = ["novo-lang"]
 main        = "src/main.nv"
 
-# The README is the package's one page, and its own first heading is the
-# package name — which says nothing in a list of this package's pages.
+# The README is the package's one page.  Its own first heading is the
+# package name, which says nothing in a list of this package's pages, so
+# the line below is what a reader sees there instead.
 [docs.pages]
 "README.md" = "Writing and reading signed variable-length integers"
 
 [dependencies]
 # The two halves of the transform, each usable on its own.  Both ranges
-# are the widest this package supports: it calls nothing either one
-# added after its first release, so a consumer that already holds a
-# 0.1.x of either keeps it.
+# are the widest this package supports, because it calls nothing either
+# one added after its first release.  A consumer that already holds a
+# 0.1.x of either keeps it.  The floor rises only when this package
+# needs something a later release added, and CHANGELOG.md says so when
+# it does.
 leb128-nv = "^0.1.0"
 zigzag-nv = "^0.1.0"
