@@ -202,7 +202,7 @@ fn lifted(e: Leb128Error) -> VarintError
 // println("${n}")                                         // 3
 // println(bytes.to_hex(bytes.slice(out.finish(), 0, n)))  // 01d804
 // ```
-pub fn encode_into(mut dst: Cursor, value: Int) -> Int
+pub fn encode_into(var dst: Cursor, value: Int) -> Int
     leb128.encode_into(dst, zigzag.encode64(value))
 
 // Encode `value` into a fresh buffer of exactly its own length.
@@ -246,15 +246,16 @@ pub fn encode(value: Int) -> Bytes
 //     Ok(v)  => println("${v} ends at ${r.pos()}")   // 300 ends at 3
 //     Err(e) => println(e.message())
 // ```
-pub fn decode_from(mut src: Cursor) -> Result<Int, VarintError>
+pub fn decode_from(var src: Cursor) -> Result<Int, VarintError>
     match leb128.decode_from(src)
         Ok(folded) => Ok(zigzag.decode64(folded))
         Err(e)     => Err(lifted(e))
 
 // Read the varint at the start of `src`, ignoring whatever follows it.
 //
-// The call builds a cursor and discards it, so a caller reading a run of
-// varints holds one cursor and calls `decode_from` instead.  A malformed
+// The call reads the bytes where they are and keeps no position, so a
+// caller reading a run of varints holds one cursor and calls
+// `decode_from` instead.  A malformed
 // input answers an `Err` carrying the byte count reached, and never
 // panics.
 //
@@ -271,8 +272,9 @@ pub fn decode_from(mut src: Cursor) -> Result<Int, VarintError>
 //     Err(e) => println(e.message())     // varint: input ended after 1 byte(s) …
 // ```
 pub fn decode(src: Bytes) -> Result<Int, VarintError>
-    var c = bytes.cursor_le(src)
-    decode_from(c)
+    match read_folded_at(src, 0)
+        Err(e) => Err(e)
+        Ok(d)  => Ok(zigzag.decode64(d.value))
 
 // A varint and the number of bytes it occupied.
 //
@@ -329,7 +331,7 @@ pub fn decode_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
 // println("${n}")                                         // 2
 // println(bytes.to_hex(bytes.slice(out.finish(), 0, n)))  // 9501
 // ```
-pub fn encode32_into(mut dst: Cursor, value: Int) -> Int
+pub fn encode32_into(var dst: Cursor, value: Int) -> Int
     leb128.encode_into(dst, zigzag.encode32(value))
 
 // Encode `value` folded onto 32 bits, as a fresh buffer of its own
@@ -374,7 +376,7 @@ pub fn encode32(value: Int) -> Bytes
 //     Ok(v)  => println("${v} ends at ${r.pos()}")   // 300 ends at 4
 //     Err(e) => println(e.message())
 // ```
-pub fn decode32_from(mut src: Cursor) -> Result<Int, VarintError>
+pub fn decode32_from(var src: Cursor) -> Result<Int, VarintError>
     let before = src.pos()
     match leb128.decode_from(src)
         Err(e)     => Err(lifted(e))
@@ -382,7 +384,7 @@ pub fn decode32_from(mut src: Cursor) -> Result<Int, VarintError>
 
 // Read the 32-bit varint at the start of `src`, ignoring what follows.
 //
-// The call builds a cursor and discards it, as `decode` does.  A number
+// The call reads the bytes where they are, as `decode` does.  A number
 // that is well formed but too wide answers `NotInt32` rather than a
 // truncation or a wrapped value, so the caller can read it again at 64
 // bits.
@@ -400,8 +402,9 @@ pub fn decode32_from(mut src: Cursor) -> Result<Int, VarintError>
 //     Err(e) => println(e.message())   // varint: … outside the signed 32-bit range
 // ```
 pub fn decode32(src: Bytes) -> Result<Int, VarintError>
-    var c = bytes.cursor_le(src)
-    decode32_from(c)
+    match read_folded_at(src, 0)
+        Err(e) => Err(e)
+        Ok(d)  => narrowed(d.value, d.len)
 
 // Read the 32-bit varint at `off` in `src`, with the length it took.
 //
@@ -432,19 +435,14 @@ pub fn decode32_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
 // itself treated as input.  The two `decode_at` forms differ only in
 // what they do with the folded number, so the walk lives here once.
 //
-// `leb128.decode_at` answers the same question and is not used.  It
-// arrived in a later release of leb128-nv than the range this package
-// requires, and a package calls only what its published range
-// provides.
+// `leb128.decode_at` reads by offset and never builds a cursor.  A
+// cursor may write into its buffer, and `src` is the caller's, handed
+// over only to be read.  An offset outside the buffer is its
+// `Truncated(after: 0)`.
 fn read_folded_at(src: Bytes, off: Int) -> Result<Decoded, VarintError>
-    if off < 0 or off > bytes.len(src)
-        Err(Truncated(after: 0))
-    else
-        var c = bytes.cursor_le(src)
-        c.seek(off)
-        match leb128.decode_from(c)
-            Err(e)     => Err(lifted(e))
-            Ok(folded) => Ok(Decoded { value: folded, len: c.pos() - off })
+    match leb128.decode_at(src, off)
+        Err(e) => Err(lifted(e))
+        Ok(d)  => Ok(Decoded { value: d.value, len: d.len })
 
 // A folded 64-bit value read as a 32-bit one.  The fold of a signed
 // 32-bit number never reaches bit 32, so anything above `0xffffffff` is

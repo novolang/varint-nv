@@ -3,9 +3,9 @@
 [leb128-nv]
 source = "registry"
 url = "https://registry.novo-lang.org"
-req = "^0.1.0"
-version = "0.1.2"
-hash = "6d8ae9f77dcdab0c13e2afb36f620813d99fc2df2f96e5d9dbc36ac6f431db03"
+req = "^0.1.1"
+version = "0.1.6"
+hash = "bf56d361f240c3e0e69aa98ccfee1c7e39227f5cd1ed640856a0f5046d56ecec"
 
 [zigzag-nv]
 source = "registry"

@@ -1,6 +1,6 @@
 [package]
 name        = "varint-nv"
-version     = "0.1.5"
+version     = "0.1.6"
 description = "Signed varints, the ZigZag fold and the LEB128 byte loop as one call, at 32 and 64 bits, so that -1 takes one byte instead of ten.  The pairing Protocol Buffers calls sint32 and sint64.  Encodes into a caller's buffer without allocating, and answers malformed input as a value rather than a panic."
 license     = "Apache-2.0"
 
@@ -25,11 +25,11 @@ main        = "src/main.nv"
 "README.md" = "Writing and reading signed variable-length integers"
 
 [dependencies]
-# The two halves of the transform, each usable on its own.  Both ranges
-# are the widest this package supports, because it calls nothing either
-# one added after its first release.  A consumer that already holds a
-# 0.1.x of either keeps it.  The floor rises only when this package
-# needs something a later release added, and CHANGELOG.md says so when
-# it does.
-leb128-nv = "^0.1.0"
+# The two halves of the transform, each usable on its own.  Each range
+# is the widest this package supports.  leb128-nv starts at 0.1.1, the
+# release that added `decode_at`, which the offset reader calls.
+# zigzag-nv starts at its first release.  The floor rises only when this
+# package needs something a later release added, and CHANGELOG.md says
+# so when it does.
+leb128-nv = "^0.1.1"
 zigzag-nv = "^0.1.0"

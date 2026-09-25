@@ -143,7 +143,7 @@ fn test_a_run_of_varints_is_read_with_one_cursor() [io]
     let _ = varint.encode_into(w, 0 - 1)
     let _ = varint.encode_into(w, 150)
     let _ = varint.encode_into(w, 0)
-    let wire = w.finish()
+    var wire = w.finish()
     var r = bytes.cursor_le(wire)
     test.assert_eq(varint.decode_from(r)!, 0 - 1)
     test.assert_eq(varint.decode_from(r)!, 150)

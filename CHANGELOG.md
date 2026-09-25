@@ -4,6 +4,18 @@ Newest first.  Below `1.0.0` a breaking change bumps the **minor**
 number and a compatible one the **patch**; see [Version numbers in the
 Orbit package registry](https://novo-lang.org/docs/registry/semver.html).
 
+## 0.1.6 — 2026-09-25
+
+`decode`, `decode_at`, `decode32` and `decode32_at` read the caller's
+buffer through `leb128.decode_at`, instead of building a cursor over it.
+A cursor may write into the buffer it holds, and the next Novo release
+refuses to build a writable cursor over a buffer the caller passed in
+only to be read.  No signature changed, nothing is copied, and every
+answer is what 0.1.5 gave.
+
+The `leb128-nv` range starts at `0.1.1`, the first release with
+`decode_at`.
+
 ## 0.1.5 — 2026-09-24
 
 The documentation and comments in plain prose; no declaration changed.
